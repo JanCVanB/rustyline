@@ -1,7 +1,7 @@
 use smallvec::smallvec;
 use std::borrow::Cow::{self, Borrowed, Owned};
 
-use rustyline::highlight::Highlighter;
+use rustyline::highlight::{Highlighter, PromptInfo};
 use rustyline::hint::{Hinter, HistoryHinter};
 use rustyline::{
     Cmd, ConditionalEventHandler, Context, Editor, Event, EventContext, EventHandler, KeyEvent,
@@ -24,9 +24,9 @@ impl Highlighter for MyHelper {
     fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
         &'s self,
         prompt: &'p str,
-        default: bool,
+        info: PromptInfo<'_>,
     ) -> Cow<'b, str> {
-        if default {
+        if info.is_default() {
             Owned(format!("\x1b[1;32m{}\x1b[m", prompt))
         } else {
             Borrowed(prompt)
