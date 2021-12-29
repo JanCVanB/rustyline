@@ -7,11 +7,6 @@ use crate::line_buffer::LineBuffer;
 use crate::{Context, Result};
 use memchr::memchr;
 
-// TODO: let the implementers choose/find word boundaries ???
-// (line, pos) is like (rl_line_buffer, rl_point) to make contextual completion
-// ("select t.na| from tbl as t")
-// TODO: make &self &mut self ???
-
 /// A completion candidate.
 pub trait Candidate {
     /// Text to display when listing alternatives.
@@ -30,8 +25,32 @@ impl Candidate for String {
     }
 }
 
+/// #[deprecated = "Unusable"]
+impl Candidate for str {
+    fn display(&self) -> &str {
+        self
+    }
+
+    fn replacement(&self) -> &str {
+        self
+    }
+}
+
+impl Candidate for &'_ str {
+    fn display(&self) -> &str {
+        self
+    }
+
+    fn replacement(&self) -> &str {
+        self
+    }
+}
+
+/// Completion candidate pair
 pub struct Pair {
+    /// Text to display when listing alternatives.
     pub display: String,
+    /// Text to insert in line.
     pub replacement: String,
 }
 
@@ -45,9 +64,15 @@ impl Candidate for Pair {
     }
 }
 
+// TODO: let the implementers customize how the candidate(s) are displayed
+// https://github.com/kkawakam/rustyline/issues/302
+
 /// To be called for tab-completion.
 pub trait Completer {
+    /// Specific completion candidate.
     type Candidate: Candidate;
+
+    // TODO: let the implementers choose/find word boundaries ??? => Lexer
 
     /// Takes the currently edited `line` with the cursor `pos`ition and
     /// returns the start position and the completion candidates for the
@@ -55,7 +80,7 @@ pub trait Completer {
     ///
     /// ("ls /usr/loc", 11) => Ok((3, vec!["/usr/local/"]))
     fn complete(
-        &self,
+        &self, // FIXME should be `&mut self`
         line: &str,
         pos: usize,
         ctx: &Context<'_>,
@@ -149,14 +174,19 @@ cfg_if::cfg_if! {
     }
 }
 
+/// Kind of quote.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Quote {
+    /// Double quote: `"`
     Double,
+    /// Single quote: `'`
     Single,
+    /// No quote
     None,
 }
 
 impl FilenameCompleter {
+    /// Constructor
     pub fn new() -> Self {
         Self {
             break_chars: &DEFAULT_BREAK_CHARS,
@@ -164,6 +194,9 @@ impl FilenameCompleter {
         }
     }
 
+    /// Takes the currently edited `line` with the cursor `pos`ition and
+    /// returns the start position and the completion candidates for the
+    /// partial path to be completed.
     pub fn complete_path(&self, line: &str, pos: usize) -> Result<(usize, Vec<Pair>)> {
         let (start, path, esc_char, break_chars, quote) =
             if let Some((idx, quote)) = find_unclosed_quote(&line[..pos]) {
@@ -186,11 +219,13 @@ impl FilenameCompleter {
                     )
                 }
             } else {
-                let (start, path) = extract_word(line, pos, ESCAPE_CHAR, &self.break_chars);
+                let (start, path) = extract_word(line, pos, ESCAPE_CHAR, self.break_chars);
                 let path = unescape(path, ESCAPE_CHAR);
                 (start, path, ESCAPE_CHAR, &self.break_chars, Quote::None)
             };
-        let matches = filename_complete(&path, esc_char, break_chars, quote)?;
+        let mut matches = filename_complete(&path, esc_char, break_chars, quote);
+        #[allow(clippy::unnecessary_sort_by)]
+        matches.sort_by(|a, b| a.display().cmp(b.display()));
         Ok((start, matches))
     }
 }
@@ -283,9 +318,9 @@ fn filename_complete(
     esc_char: Option<char>,
     break_chars: &[u8],
     quote: Quote,
-) -> Result<Vec<Pair>> {
+) -> Vec<Pair> {
     #[cfg(feature = "with-dirs")]
-    use dirs::home_dir;
+    use dirs_next::home_dir;
     use std::env::current_dir;
 
     let sep = path::MAIN_SEPARATOR;
@@ -327,31 +362,42 @@ fn filename_complete(
 
     // if dir doesn't exist, then don't offer any completions
     if !dir.exists() {
-        return Ok(entries);
+        return entries;
     }
 
     // if any of the below IO operations have errors, just ignore them
     if let Ok(read_dir) = dir.read_dir() {
-        for entry in read_dir {
-            if let Ok(entry) = entry {
-                if let Some(s) = entry.file_name().to_str() {
-                    if s.starts_with(file_name) {
-                        if let Ok(metadata) = fs::metadata(entry.path()) {
-                            let mut path = String::from(dir_name) + s;
-                            if metadata.is_dir() {
-                                path.push(sep);
-                            }
-                            entries.push(Pair {
-                                display: String::from(s),
-                                replacement: escape(path, esc_char, break_chars, quote),
-                            });
-                        } // else ignore PermissionDenied
-                    }
+        let file_name = normalize(file_name);
+        for entry in read_dir.flatten() {
+            if let Some(s) = entry.file_name().to_str() {
+                let ns = normalize(s);
+                if ns.starts_with(file_name.as_ref()) {
+                    if let Ok(metadata) = fs::metadata(entry.path()) {
+                        let mut path = String::from(dir_name) + s;
+                        if metadata.is_dir() {
+                            path.push(sep);
+                        }
+                        entries.push(Pair {
+                            display: String::from(s),
+                            replacement: escape(path, esc_char, break_chars, quote),
+                        });
+                    } // else ignore PermissionDenied
                 }
             }
         }
     }
-    Ok(entries)
+    entries
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn normalize(s: &str) -> Cow<str> {
+    // case insensitive
+    Cow::Owned(s.to_lowercase())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn normalize(s: &str) -> Cow<str> {
+    Cow::Borrowed(s)
 }
 
 /// Given a `line` and a cursor `pos`ition,
@@ -393,11 +439,12 @@ pub fn extract_word<'l>(
     }
 }
 
+/// Returns the longest common prefix among all `Candidate::replacement()`s.
 pub fn longest_common_prefix<C: Candidate>(candidates: &[C]) -> Option<&str> {
     if candidates.is_empty() {
         return None;
     } else if candidates.len() == 1 {
-        return Some(&candidates[0].replacement());
+        return Some(candidates[0].replacement());
     }
     let mut longest_common_prefix = 0;
     'o: loop {
@@ -489,12 +536,12 @@ mod tests {
         let line = "ls '/usr/local/b";
         assert_eq!(
             (4, "/usr/local/b"),
-            super::extract_word(line, line.len(), Some('\\'), &break_chars)
+            super::extract_word(line, line.len(), Some('\\'), break_chars)
         );
         let line = "ls /User\\ Information";
         assert_eq!(
             (3, "/User\\ Information"),
-            super::extract_word(line, line.len(), Some('\\'), &break_chars)
+            super::extract_word(line, line.len(), Some('\\'), break_chars)
         );
     }
 
@@ -520,13 +567,13 @@ mod tests {
         let input = String::from("/usr/local/b");
         assert_eq!(
             input.clone(),
-            super::escape(input, Some('\\'), &break_chars, super::Quote::None)
+            super::escape(input, Some('\\'), break_chars, super::Quote::None)
         );
         let input = String::from("/User Information");
         let result = String::from("/User\\ Information");
         assert_eq!(
             result,
-            super::escape(input, Some('\\'), &break_chars, super::Quote::None)
+            super::escape(input, Some('\\'), break_chars, super::Quote::None)
         );
     }
 
@@ -540,21 +587,21 @@ mod tests {
 
         let s = "User";
         let c1 = String::from(s);
-        candidates.push(c1.clone());
+        candidates.push(c1);
         {
             let lcp = super::longest_common_prefix(&candidates);
             assert_eq!(Some(s), lcp);
         }
 
         let c2 = String::from("Users");
-        candidates.push(c2.clone());
+        candidates.push(c2);
         {
             let lcp = super::longest_common_prefix(&candidates);
             assert_eq!(Some(s), lcp);
         }
 
         let c3 = String::from("");
-        candidates.push(c3.clone());
+        candidates.push(c3);
         {
             let lcp = super::longest_common_prefix(&candidates);
             assert!(lcp.is_none());
@@ -580,5 +627,11 @@ mod tests {
             Some((0, super::Quote::Double)),
             super::find_unclosed_quote("\"c:\\users\\All Users\\")
         )
+    }
+
+    #[cfg(windows)]
+    #[test]
+    pub fn normalize() {
+        assert_eq!(super::normalize("Windows"), "windows")
     }
 }

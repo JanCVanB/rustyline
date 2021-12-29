@@ -1,8 +1,7 @@
 # RustyLine
-[![Build Status](https://travis-ci.org/kkawakam/rustyline.svg?branch=master)](https://travis-ci.org/kkawakam/rustyline)
-[![Build Status](https://ci.appveyor.com/api/projects/status/github/kkawakam/rustyline?branch=master&svg=true)](https://ci.appveyor.com/project/kkawakam/rustyline/branch/master)
+[![Build Status](https://github.com/kkawakam/rustyline/workflows/Rust/badge.svg)](https://github.com/kkawakam/rustyline/actions)
 [![dependency status](https://deps.rs/repo/github/kkawakam/rustyline/status.svg)](https://deps.rs/repo/github/kkawakam/rustyline)
-[![](http://meritbadge.herokuapp.com/rustyline)](https://crates.io/crates/rustyline)
+[![](https://img.shields.io/crates/v/rustyline.svg)](https://crates.io/crates/rustyline)
 [![Docs](https://docs.rs/rustyline/badge.svg)](https://docs.rs/rustyline)
 
 Readline implementation in Rust that is based on [Antirez' Linenoise](https://github.com/antirez/linenoise)
@@ -16,11 +15,10 @@ Readline implementation in Rust that is based on [Antirez' Linenoise](https://gi
 **Note**:
 * Powershell ISE is not supported, check [issue #56](https://github.com/kkawakam/rustyline/issues/56)
 * Mintty (Cygwin/MinGW) is not supported
+* Highlighting / Colors are not supported on Windows < Windows 10 except with ConEmu and `ColorMode::Forced`.
 
 ## Example
 ```rust
-extern crate rustyline;
-
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
@@ -61,7 +59,7 @@ to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rustyline = "5.0.5"
+rustyline = "9.1.0"
 ```
 
 ## Features
@@ -201,6 +199,8 @@ $ # current settings of all terminal attributes:
 $ stty -a
 $ # key bindings:
 $ bind -p
+$ # print out a terminfo description:
+$ infocmp
 ```
 
 ## Similar projects
@@ -215,6 +215,7 @@ Library            | Lang    | OS     | Term  | Unicode | History       | Comple
 [Liner][]          | Rust    | Ux     | ANSI  |         | No inc search | only word  | Emacs/vi/prog | No        | Yes  | Ux         | History based     |
 [prompt_toolkit][] | Python  | Ux/Win | ANSI  | Yes     | Yes           | any        | Emacs/vi/conf | Yes       | Yes  | Ux/Win     | Yes               |
 [rb-readline][]    | Ruby    | Ux/Win | ANSI  | Yes     | Yes           | only word  | Emacs/vi/conf | Yes       | Yes  | ?          | No                |
+[reedline][]       | Rust    | Ux/Win | ANSI  | Yes     | Yes           | any        | Emacs/vi/bind | No        | Yes  | Ux/Win     | Yes               |
 [replxx][]         | C/C++   | Ux/Win | ANSI  | Yes     | Yes           | only line  | Emacs         | Yes       | No   | Ux/Win     | Yes               |
 Rustyline          | Rust    | Ux/Win | ANSI  | Yes     | Yes           | any        | Emacs/vi/bind | Yes       | Yes  | Ux/Win 10+ | Yes               |
 [termwiz][]        | Rust    | Ux/Win | Any   | ?       | Yes           | any        | Emacs         | No        | No   | Ux/Win     | No                |
@@ -227,6 +228,7 @@ Rustyline          | Rust    | Ux/Win | ANSI  | Yes     | Yes           | any   
 [Liner]: https://github.com/redox-os/liner
 [prompt_toolkit]: https://github.com/jonathanslenders/python-prompt-toolkit
 [rb-readline]: https://github.com/ConnorAtherton/rb-readline
+[reedline]: https://github.com/nushell/reedline
 [replxx]: https://github.com/AmokHuginnsson/replxx
 [termwiz]: https://github.com/wez/wezterm/tree/master/termwiz
 
@@ -238,6 +240,9 @@ line instead of horizontally scrolling as more characters are
 typed. Currently this feature is always enabled and there is no
 configuration option to disable it.
 
-_This feature does not allow the end user to hit a special key
+This feature does not allow the end user to hit a special key
 sequence and enter a mode where hitting the return key will cause a
-literal newline to be added to the input buffer_.
+literal newline to be added to the input buffer.
+
+The way to achieve multi-line editing is to implement the `Validator`
+trait.

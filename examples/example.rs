@@ -1,20 +1,23 @@
-use env_logger;
 use std::borrow::Cow::{self, Borrowed, Owned};
 
 use rustyline::completion::{Completer, FilenameCompleter, Pair};
 use rustyline::config::OutputStreamType;
 use rustyline::error::ReadlineError;
 use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
+use rustyline::highlight::{PromptInfo};
 use rustyline::hint::{Hinter, HistoryHinter};
-use rustyline::{Cmd, CompletionType, Config, Context, EditMode, Editor, KeyPress};
+use rustyline::validate::{self, MatchingBracketValidator, Validator};
+use rustyline::{Cmd, CompletionType, Config, Context, EditMode, Editor, KeyEvent};
 use rustyline_derive::Helper;
 
 #[derive(Helper)]
 struct MyHelper {
     completer: FilenameCompleter,
     highlighter: MatchingBracketHighlighter,
+    validator: MatchingBracketValidator,
     hinter: HistoryHinter,
     colored_prompt: String,
+    continuation_prompt: String,
 }
 
 impl Completer for MyHelper {
@@ -31,6 +34,8 @@ impl Completer for MyHelper {
 }
 
 impl Hinter for MyHelper {
+    type Hint = String;
+
     fn hint(&self, line: &str, pos: usize, ctx: &Context<'_>) -> Option<String> {
         self.hinter.hint(line, pos, ctx)
     }
@@ -40,13 +45,21 @@ impl Highlighter for MyHelper {
     fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
         &'s self,
         prompt: &'p str,
-        default: bool,
+        info: PromptInfo<'_>,
     ) -> Cow<'b, str> {
-        if default {
-            Borrowed(&self.colored_prompt)
+        if info.is_default() {
+            if info.line_no() > 0 {
+                Borrowed(&self.continuation_prompt)
+            } else {
+                Borrowed(&self.colored_prompt)
+            }
         } else {
             Borrowed(prompt)
         }
+    }
+
+    fn has_continuation_prompt(&self) -> bool {
+        return true;
     }
 
     fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
@@ -59,6 +72,19 @@ impl Highlighter for MyHelper {
 
     fn highlight_char(&self, line: &str, pos: usize) -> bool {
         self.highlighter.highlight_char(line, pos)
+    }
+}
+
+impl Validator for MyHelper {
+    fn validate(
+        &self,
+        ctx: &mut validate::ValidationContext,
+    ) -> rustyline::Result<validate::ValidationResult> {
+        self.validator.validate(ctx)
+    }
+
+    fn validate_while_typing(&self) -> bool {
+        self.validator.validate_while_typing()
     }
 }
 
@@ -76,18 +102,20 @@ fn main() -> rustyline::Result<()> {
         completer: FilenameCompleter::new(),
         highlighter: MatchingBracketHighlighter::new(),
         hinter: HistoryHinter {},
-        colored_prompt: "".to_owned(),
+        colored_prompt: "  0> ".to_owned(),
+        continuation_prompt: "\x1b[1;32m...> \x1b[0m".to_owned(),
+        validator: MatchingBracketValidator::new(),
     };
     let mut rl = Editor::with_config(config);
     rl.set_helper(Some(h));
-    rl.bind_sequence(KeyPress::Meta('N'), Cmd::HistorySearchForward);
-    rl.bind_sequence(KeyPress::Meta('P'), Cmd::HistorySearchBackward);
+    rl.bind_sequence(KeyEvent::alt('n'), Cmd::HistorySearchForward);
+    rl.bind_sequence(KeyEvent::alt('p'), Cmd::HistorySearchBackward);
     if rl.load_history("history.txt").is_err() {
         println!("No previous history.");
     }
     let mut count = 1;
     loop {
-        let p = format!("{}> ", count);
+        let p = format!("{:>3}> ", count);
         rl.helper_mut().expect("No helper").colored_prompt = format!("\x1b[1;32m{}\x1b[0m", p);
         let readline = rl.readline(&p);
         match readline {
@@ -96,11 +124,11 @@ fn main() -> rustyline::Result<()> {
                 println!("Line: {}", line);
             }
             Err(ReadlineError::Interrupted) => {
-                println!("CTRL-C");
+                println!("Interrupted");
                 break;
             }
             Err(ReadlineError::Eof) => {
-                println!("CTRL-D");
+                println!("Encountered Eof");
                 break;
             }
             Err(err) => {
@@ -110,5 +138,5 @@ fn main() -> rustyline::Result<()> {
         }
         count += 1;
     }
-    rl.save_history("history.txt")
+    rl.append_history("history.txt")
 }

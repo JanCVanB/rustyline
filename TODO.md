@@ -16,7 +16,7 @@ Color
 
 Completion
 - [X] Quoted path
-- [ ] Windows escape/unescape space in path
+- [X] Windows escape/unescape space in path
 - [ ] file completion & escape/unescape (#106)
 - [ ] file completion & tilde (#62)
 - [X] display versus replacement
@@ -40,15 +40,16 @@ History
 - [ ] Move to the history line n
 - [ ] historyFile: Where to read/write the history at the start and end of
 each line input session.
-- [ ] append_history
+- [X] append_history
 - [ ] history_truncate_file
+- [ ] custom persistent storage
 
 Input
 - [ ] Password input (#58) (https://github.com/conradkdotcom/rpassword) (https://github.com/antirez/linenoise/issues/125)
 - [X] quoted insert (#65)
 - [ ] Overwrite mode (em-toggle-overwrite, vi-replace-mode, rl_insert_mode)
 - [ ] Encoding
-- [ ] [Ctrl-][Alt-][Shift-]<Key> (#121)
+- [X] [Ctrl-][Alt-][Shift-]<Key> (#121)
 
 Layout
 - [ ] Redraw perf (https://crates.io/crates/cassowary)

@@ -28,9 +28,16 @@ pub struct Config {
     output_stream: OutputStreamType,
     /// Horizontal space taken by a tab.
     tab_stop: usize,
+    /// Indentation size for indent/dedent commands
+    indent_size: usize,
+    /// Check if cursor position is at leftmost before displaying prompt
+    check_cursor_position: bool,
+    /// Bracketed paste on unix platform
+    enable_bracketed_paste: bool,
 }
 
 impl Config {
+    /// Returns a `Config` builder.
     pub fn builder() -> Builder {
         Builder::new()
     }
@@ -72,18 +79,30 @@ impl Config {
         self.history_ignore_space = yes;
     }
 
+    /// Completion behaviour.
+    ///
+    /// By default, `CompletionType::Circular`.
     pub fn completion_type(&self) -> CompletionType {
         self.completion_type
     }
 
+    /// When listing completion alternatives, only display
+    /// one screen of possibilities at a time (used for `CompletionType::List`
+    /// mode).
     pub fn completion_prompt_limit(&self) -> usize {
         self.completion_prompt_limit
     }
 
+    /// Duration (milliseconds) Rustyline will wait for a character when
+    /// reading an ambiguous key sequence (used for `EditMode::Vi` mode on unix
+    /// platform).
+    ///
+    /// By default, no timeout (-1) or 500ms if `EditMode::Vi` is activated.
     pub fn keyseq_timeout(&self) -> i32 {
         self.keyseq_timeout
     }
 
+    /// Emacs or Vi mode
     pub fn edit_mode(&self) -> EditMode {
         self.edit_mode
     }
@@ -111,6 +130,9 @@ impl Config {
         self.color_mode = color_mode;
     }
 
+    /// Tell which output stream should be used: stdout or stderr.
+    ///
+    /// By default, stdout is used.
     pub fn output_stream(&self) -> OutputStreamType {
         self.output_stream
     }
@@ -120,12 +142,39 @@ impl Config {
     }
 
     /// Horizontal space taken by a tab.
+    ///
+    /// By default, 8.
     pub fn tab_stop(&self) -> usize {
         self.tab_stop
     }
 
     pub(crate) fn set_tab_stop(&mut self, tab_stop: usize) {
         self.tab_stop = tab_stop;
+    }
+
+    /// Check if cursor position is at leftmost before displaying prompt.
+    ///
+    /// By default, we don't check.
+    pub fn check_cursor_position(&self) -> bool {
+        self.check_cursor_position
+    }
+
+    /// Indentation size used by indentation commands
+    ///
+    /// By default, 2.
+    pub fn indent_size(&self) -> usize {
+        self.indent_size
+    }
+
+    pub(crate) fn set_indent_size(&mut self, indent_size: usize) {
+        self.indent_size = indent_size;
+    }
+
+    /// Bracketed paste on unix platform
+    ///
+    /// By default, it's enabled.
+    pub fn enable_bracketed_paste(&self) -> bool {
+        self.enable_bracketed_paste
     }
 }
 
@@ -144,6 +193,9 @@ impl Default for Config {
             color_mode: ColorMode::Enabled,
             output_stream: OutputStreamType::Stdout,
             tab_stop: 8,
+            indent_size: 2,
+            check_cursor_position: false,
+            enable_bracketed_paste: true,
         }
     }
 }
@@ -159,7 +211,7 @@ pub enum BellStyle {
     Visible,
 }
 
-/// `Audible` by default on unix (overriden by current Terminal settings).
+/// `Audible` by default on unix (overridden by current Terminal settings).
 /// `None` on windows.
 impl Default for BellStyle {
     #[cfg(any(windows, target_arch = "wasm32"))]
@@ -173,14 +225,18 @@ impl Default for BellStyle {
     }
 }
 
+/// History filter
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HistoryDuplicates {
+    /// No filter
     AlwaysAdd,
     /// a line will not be added to the history if it matches the previous entry
     IgnoreConsecutive,
 }
 
+/// Tab completion style
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CompletionType {
     /// Complete the next full match (like in Vim by default)
     Circular,
@@ -188,38 +244,56 @@ pub enum CompletionType {
     /// When more than one match, list all matches
     /// (like in Bash/Readline).
     List,
+
+    /// Complete the match using fuzzy search and selection
+    /// (like fzf and plugins)
+    /// Currently only available for unix platforms as dependency on
+    /// skim->tuikit Compile with `--features=fuzzy` to enable
+    #[cfg(all(unix, feature = "with-fuzzy"))]
+    Fuzzy,
 }
 
 /// Style of editing / Standard keymaps
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EditMode {
+    /// Emacs keymap
     Emacs,
+    /// Vi keymap
     Vi,
 }
 
 /// Colorization mode
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ColorMode {
+    /// Activate highlighting if platform/terminal is supported.
     Enabled,
+    /// Activate highlighting even if platform is not supported (windows < 10).
     Forced,
+    /// Deactivate highlighting even if platform/terminal is supported.
     Disabled,
 }
 
 /// Should the editor use stdout or stderr
 // TODO console term::TermTarget
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum OutputStreamType {
+    /// Use stderr
     Stderr,
+    /// Use stdout
     Stdout,
 }
 
 /// Configuration builder
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Builder {
     p: Config,
 }
 
 impl Builder {
+    /// Returns a `Config` builder.
     pub fn new() -> Self {
         Self {
             p: Config::default(),
@@ -317,6 +391,31 @@ impl Builder {
         self
     }
 
+    /// Check if cursor position is at leftmost before displaying prompt.
+    ///
+    /// By default, we don't check.
+    pub fn check_cursor_position(mut self, yes: bool) -> Self {
+        self.set_check_cursor_position(yes);
+        self
+    }
+
+    /// Indentation size
+    ///
+    /// By default, `2`
+    pub fn indent_size(mut self, indent_size: usize) -> Self {
+        self.set_indent_size(indent_size);
+        self
+    }
+
+    /// Enable or disable bracketed paste on unix platform
+    ///
+    /// By default, it's enabled.
+    pub fn bracketed_paste(mut self, enabled: bool) -> Self {
+        self.enable_bracketed_paste(enabled);
+        self
+    }
+
+    /// Builds a `Config` with the settings specified so far.
     pub fn build(self) -> Config {
         self.p
     }
@@ -328,7 +427,9 @@ impl Configurer for Builder {
     }
 }
 
+/// Trait for component that holds a `Config`.
 pub trait Configurer {
+    /// `Config` accessor.
     fn config_mut(&mut self) -> &mut Config;
 
     /// Set the maximum length for the history.
@@ -407,5 +508,25 @@ pub trait Configurer {
     /// By default, `8`
     fn set_tab_stop(&mut self, tab_stop: usize) {
         self.config_mut().set_tab_stop(tab_stop);
+    }
+
+    /// Check if cursor position is at leftmost before displaying prompt.
+    ///
+    /// By default, we don't check.
+    fn set_check_cursor_position(&mut self, yes: bool) {
+        self.config_mut().check_cursor_position = yes;
+    }
+    /// Indentation size for indent/dedent commands
+    ///
+    /// By default, `2`
+    fn set_indent_size(&mut self, size: usize) {
+        self.config_mut().set_indent_size(size);
+    }
+
+    /// Enable or disable bracketed paste on unix platform
+    ///
+    /// By default, it's enabled.
+    fn enable_bracketed_paste(&mut self, enabled: bool) {
+        self.config_mut().enable_bracketed_paste = enabled;
     }
 }

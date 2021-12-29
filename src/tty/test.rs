@@ -6,12 +6,14 @@ use std::vec::IntoIter;
 use super::{RawMode, RawReader, Renderer, Term};
 use crate::config::{BellStyle, ColorMode, Config, OutputStreamType};
 use crate::error::ReadlineError;
+use crate::edit::Prompt;
 use crate::highlight::Highlighter;
-use crate::keys::KeyPress;
+use crate::keys::KeyEvent;
 use crate::layout::{Layout, Position};
 use crate::line_buffer::LineBuffer;
-use crate::Result;
+use crate::{Cmd, Result};
 
+pub type KeyMap = ();
 pub type Mode = ();
 
 impl RawMode for Mode {
@@ -20,8 +22,8 @@ impl RawMode for Mode {
     }
 }
 
-impl<'a> RawReader for Iter<'a, KeyPress> {
-    fn next_key(&mut self, _: bool) -> Result<KeyPress> {
+impl<'a> RawReader for Iter<'a, KeyEvent> {
+    fn next_key(&mut self, _: bool) -> Result<KeyEvent> {
         match self.next() {
             Some(key) => Ok(*key),
             None => Err(ReadlineError::Eof),
@@ -36,10 +38,14 @@ impl<'a> RawReader for Iter<'a, KeyPress> {
     fn read_pasted_text(&mut self) -> Result<String> {
         unimplemented!()
     }
+
+    fn find_binding(&self, _: &KeyEvent) -> Option<Cmd> {
+        None
+    }
 }
 
-impl RawReader for IntoIter<KeyPress> {
-    fn next_key(&mut self, _: bool) -> Result<KeyPress> {
+impl RawReader for IntoIter<KeyEvent> {
+    fn next_key(&mut self, _: bool) -> Result<KeyEvent> {
         match self.next() {
             Some(key) => Ok(key),
             None => Err(ReadlineError::Eof),
@@ -48,8 +54,9 @@ impl RawReader for IntoIter<KeyPress> {
 
     #[cfg(unix)]
     fn next_char(&mut self) -> Result<char> {
+        use crate::keys::{KeyCode as K, KeyEvent as E, Modifiers as M};
         match self.next() {
-            Some(KeyPress::Char(c)) => Ok(c),
+            Some(E(K::Char(c), M::NONE)) => Ok(c),
             None => Err(ReadlineError::Eof),
             _ => unimplemented!(),
         }
@@ -57,6 +64,10 @@ impl RawReader for IntoIter<KeyPress> {
 
     fn read_pasted_text(&mut self) -> Result<String> {
         unimplemented!()
+    }
+
+    fn find_binding(&self, _: &KeyEvent) -> Option<Cmd> {
+        None
     }
 }
 
@@ -69,7 +80,7 @@ impl Sink {
 }
 
 impl Renderer for Sink {
-    type Reader = IntoIter<KeyPress>;
+    type Reader = IntoIter<KeyEvent>;
 
     fn move_cursor(&mut self, _: Position, _: Position) -> Result<()> {
         Ok(())
@@ -77,7 +88,7 @@ impl Renderer for Sink {
 
     fn refresh_line(
         &mut self,
-        _prompt: &str,
+        _prompt: &Prompt,
         _line: &LineBuffer,
         _hint: Option<&str>,
         _old_layout: &Layout,
@@ -87,7 +98,9 @@ impl Renderer for Sink {
         Ok(())
     }
 
-    fn calculate_position(&self, s: &str, orig: Position) -> Position {
+    fn calculate_position(&self, s: &str, orig: Position, _left_margin: usize)
+        -> Position
+    {
         let mut pos = orig;
         pos.col += s.len();
         pos
@@ -123,7 +136,7 @@ impl Renderer for Sink {
         false
     }
 
-    fn move_cursor_at_leftmost(&mut self, _: &mut IntoIter<KeyPress>) -> Result<()> {
+    fn move_cursor_at_leftmost(&mut self, _: &mut IntoIter<KeyEvent>) -> Result<()> {
         Ok(())
     }
 }
@@ -132,15 +145,16 @@ pub type Terminal = DummyTerminal;
 
 #[derive(Clone, Debug)]
 pub struct DummyTerminal {
-    pub keys: Vec<KeyPress>,
+    pub keys: Vec<KeyEvent>,
     pub cursor: usize, // cursor position before last command
     pub color_mode: ColorMode,
     pub bell_style: BellStyle,
 }
 
 impl Term for DummyTerminal {
+    type KeyMap = KeyMap;
     type Mode = Mode;
-    type Reader = IntoIter<KeyPress>;
+    type Reader = IntoIter<KeyEvent>;
     type Writer = Sink;
 
     fn new(
@@ -148,6 +162,7 @@ impl Term for DummyTerminal {
         _stream: OutputStreamType,
         _tab_stop: usize,
         bell_style: BellStyle,
+        _enable_bracketed_paste: bool,
     ) -> DummyTerminal {
         DummyTerminal {
             keys: Vec::new(),
@@ -159,8 +174,14 @@ impl Term for DummyTerminal {
 
     // Init checks:
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn is_unsupported(&self) -> bool {
         false
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn is_unsupported(&self) -> bool {
+        true
     }
 
     fn is_stdin_tty(&self) -> bool {
@@ -173,11 +194,11 @@ impl Term for DummyTerminal {
 
     // Interactive loop:
 
-    fn enable_raw_mode(&mut self) -> Result<Mode> {
-        Ok(())
+    fn enable_raw_mode(&mut self) -> Result<(Mode, KeyMap)> {
+        Ok(((), ()))
     }
 
-    fn create_reader(&self, _: &Config) -> Result<IntoIter<KeyPress>> {
+    fn create_reader(&self, _: &Config, _: KeyMap) -> Result<Self::Reader> {
         Ok(self.keys.clone().into_iter())
     }
 

@@ -1,24 +1,22 @@
 //! Contains error type for handling I/O and Errno errors
-#[cfg(unix)]
-use nix;
 #[cfg(windows)]
 use std::char;
 use std::error;
 use std::fmt;
 use std::io;
-use std::str;
 
 /// The error type for Rustyline errors that can arise from
 /// I/O related errors or Errno when using the nix-rust library
 // #[non_exhaustive]
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ReadlineError {
     /// I/O Error
     Io(io::Error),
-    /// EOF (Ctrl-D)
+    /// EOF (VEOF / Ctrl-D)
     Eof,
-    /// Ctrl-C
+    /// Interrupt signal (VINTR / VQUIT / Ctrl-C)
     Interrupted,
     /// Chars Error
     #[cfg(unix)]
@@ -26,10 +24,16 @@ pub enum ReadlineError {
     /// Unix Error from syscall
     #[cfg(unix)]
     Errno(nix::Error),
+    /// Error generated on WINDOW_BUFFER_SIZE_EVENT to mimic unix SIGWINCH
+    /// signal
     #[cfg(windows)]
     WindowResize,
+    /// Like Utf8Error on unix
     #[cfg(windows)]
     Decode(char::DecodeUtf16Error),
+    /// Something went wrong calling a Windows API
+    #[cfg(windows)]
+    SystemError(clipboard_win::SystemError),
 }
 
 impl fmt::Display for ReadlineError {
@@ -46,27 +50,13 @@ impl fmt::Display for ReadlineError {
             ReadlineError::WindowResize => write!(f, "WindowResize"),
             #[cfg(windows)]
             ReadlineError::Decode(ref err) => err.fmt(f),
+            #[cfg(windows)]
+            ReadlineError::SystemError(ref err) => err.fmt(f),
         }
     }
 }
 
-impl error::Error for ReadlineError {
-    fn description(&self) -> &str {
-        match *self {
-            ReadlineError::Io(ref err) => err.description(),
-            ReadlineError::Eof => "EOF",
-            ReadlineError::Interrupted => "Interrupted",
-            #[cfg(unix)]
-            ReadlineError::Utf8Error => "invalid utf-8: corrupt contents",
-            #[cfg(unix)]
-            ReadlineError::Errno(ref err) => err.description(),
-            #[cfg(windows)]
-            ReadlineError::WindowResize => "WindowResize",
-            #[cfg(windows)]
-            ReadlineError::Decode(ref err) => err.description(),
-        }
-    }
-}
+impl error::Error for ReadlineError {}
 
 impl From<io::Error> for ReadlineError {
     fn from(err: io::Error) -> Self {
@@ -91,5 +81,12 @@ impl From<nix::Error> for ReadlineError {
 impl From<char::DecodeUtf16Error> for ReadlineError {
     fn from(err: char::DecodeUtf16Error) -> Self {
         ReadlineError::Decode(err)
+    }
+}
+
+#[cfg(windows)]
+impl From<clipboard_win::SystemError> for ReadlineError {
+    fn from(err: clipboard_win::SystemError) -> Self {
+        ReadlineError::SystemError(err)
     }
 }
