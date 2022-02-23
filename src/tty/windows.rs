@@ -18,7 +18,6 @@ use winapi::um::{consoleapi, processenv, winbase, winuser};
 use super::{width, RawMode, RawReader, Renderer, Term};
 use crate::config::{BellStyle, ColorMode, Config, OutputStreamType};
 use crate::edit::Prompt;
-use crate::error;
 use crate::highlight::Highlighter;
 use crate::keys::{KeyCode as K, KeyEvent, Modifiers as M};
 use crate::layout::{Layout, Position};
@@ -294,7 +293,6 @@ impl ConsoleRenderer {
         let mut esc_seq = 0;
         for c in s.graphemes(true) {
             if c == "\n" {
-                col = 0;
                 *col = 0;
             } else {
                 let cw = width(c, &mut esc_seq);
