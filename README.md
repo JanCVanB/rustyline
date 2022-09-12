@@ -1,3 +1,11 @@
+# This fork is [for the Roc REPL](https://github.com/roc-lang/roc/blob/main/crates/repl_cli/src/lib.rs#L9)
+
+We need [this unmerged feature](https://github.com/kkawakam/rustyline/pull/372),
+so we're using this temporary fork of [v9.1.1](https://github.com/kkawakam/rustyline/releases/tag/v9.1.1)
+(with that feature merged here) until that feature merges upstream.
+
+---
+
 # RustyLine
 [![Build Status](https://github.com/kkawakam/rustyline/workflows/Rust/badge.svg)](https://github.com/kkawakam/rustyline/actions)
 [![dependency status](https://deps.rs/repo/github/kkawakam/rustyline/status.svg)](https://deps.rs/repo/github/kkawakam/rustyline)
